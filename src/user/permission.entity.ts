@@ -13,10 +13,10 @@ export class Permission {
   description: string;
 
   @Column()
-  resource: string; // e.g., 'expense', 'user', 'report'
+  resource: string;
 
   @Column()
-  action: string; // e.g., 'create', 'read', 'update', 'delete'
+  action: string;
 
   @ManyToMany(() => Role, role => role.permissions)
   roles: Role[];
