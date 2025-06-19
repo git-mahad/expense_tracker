@@ -10,7 +10,7 @@ export class AuthService {
   constructor(
     private userService: UserService,
     private jwtService: JwtService,
-  ) {}
+  ) { }
 
   async register(registerDto: RegisterDto): Promise<User> {
     const { username, email, password } = registerDto;
@@ -30,26 +30,28 @@ export class AuthService {
     return user;
   }
 
-  async validateUser(username: string, password: string): Promise<User | null>{
-    const user = await this.userService.findByUsername(username)
+  async validateUser(username: string, password: string): Promise<User | null> {
+    const user = await this.userService.findByUsername(username);
 
-    if(user && await bcrypt.common(password, user.password)){
-      return user
+    if (user && await bcrypt.compare(password, user.password)) {
+      return user;
     }
-    return null
+
+    return null;
   }
 
-  async login(user: User){
+  async login(user: User) {
     const payload = {
       username: user.username,
       sub: user.id,
-      roles: user.roles?.map(role=> role.name) || []
+      roles: user.roles?.map(role => role.name) || [],
     };
 
-    return{
-      access_token: this.jwtService.sign(payload)
-    }
+    return {
+      access_token: this.jwtService.sign(payload),
+    };
   }
+
   async validateToken(token: string): Promise<User | null> {
     try {
       const payload = this.jwtService.verify(token);
@@ -58,4 +60,41 @@ export class AuthService {
       return null;
     }
   }
+  // async changePassword(userId: number, changePasswordDto: ChangePasswordDto): Promise<void> {
+  //   const { currentPassword, newPassword } = changePasswordDto;
+
+  //   const user = await this.userService.findById(userId);
+  //   if (!user) {
+  //     throw new UnauthorizedException('User not found');
+  //   }
+
+  //   const isCurrentPasswordValid = await bcrypt.compare(currentPassword, user.password);
+  //   if (!isCurrentPasswordValid) {
+  //     throw new UnauthorizedException('Current password is incorrect');
+  //   }
+
+  //   const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+  //   await this.userService.updatePassword(userId, hashedNewPassword);
+  // }
+
+  // @Post('change-password')
+  // @HttpCode(HttpStatus.OK)
+  // @UseGuards(JwtAuthGuard)
+  // async changePassword(
+  //   @Request() req,
+  //   @Body() changePasswordDto: ChangePasswordDto
+  // ) {
+  //   await this.authService.changePassword(req.user.id, changePasswordDto);
+  //   return { message: 'Password changed successfully' };
+  // }
+
+  // @Post('logout')
+  // @HttpCode(HttpStatus.OK)
+  // @UseGuards(JwtAuthGuard)
+  // async logout(@Request() req) {
+  //   const token = req.headers.authorization?.replace('Bearer ', '');
+  //   await this.authService.logout(token);
+  //   return { message: 'Logged out successfully' };
+  // }
+
 }
