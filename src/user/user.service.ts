@@ -1,122 +1,232 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { User } from './user.entity';
-import { Role } from './role.entity';
+import { User } from './entities/user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
+import { UserQueryDto } from './dto/user-query.dto';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class UserService {
   constructor(
     @InjectRepository(User)
-    private userRepository: Repository<User>,
-    @InjectRepository(Role)
-    private roleRepository: Repository<Role>,
+    private readonly userRepository: Repository<User>,
   ) {}
 
   async create(createUserDto: CreateUserDto): Promise<User> {
-    const { username, email, password } = createUserDto;
-
-    // Check if user already exists
     const existingUser = await this.userRepository.findOne({
-      where: [{ username }, { email }]
+      where: [
+        { email: createUserDto.email },
+        { username: createUserDto.username },
+      ],
     });
-    
+
     if (existingUser) {
-      throw new ConflictException('Username or email already exists');
+      throw new ConflictException('User with this email or username already exists');
     }
 
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
 
-    // Get default role (user)
-    const defaultRole = await this.roleRepository.findOne({ where: { name: 'user' } });
-    
     const user = this.userRepository.create({
-      username,
-      email,
+      ...createUserDto,
       password: hashedPassword,
-      roles: defaultRole ? [defaultRole] : []
     });
 
     return this.userRepository.save(user);
   }
 
-  async findByUsername(username: string): Promise<User | null> {
-    return this.userRepository.findOne({
-      where: { username },
-      relations: ['roles', 'roles.permissions']
+  async findAll(): Promise<User[]> {
+    return this.userRepository.find({
+      select: ['id', 'username', 'email', 'firstName', 'lastName', 'isActive', 'createdAt'],
     });
   }
 
-  async findByEmail(email: string): Promise<User | null> {
-    return this.userRepository.findOne({
-      where: { email },
-      relations: ['roles', 'roles.permissions']
-    });
+  async findAllWithPagination(page: number = 1, limit: number = 10, query?: UserQueryDto) {
+    const queryBuilder = this.userRepository.createQueryBuilder('user');
+
+    if (query?.search) {
+      queryBuilder.andWhere(
+        '(user.username LIKE :search OR user.email LIKE :search OR user.firstName LIKE :search OR user.lastName LIKE :search)',
+        { search: `%${query.search}%` },
+      );
+    }
+
+    if (query?.status) {
+      queryBuilder.andWhere('user.isActive = :isActive', {
+        isActive: query.status === 'active',
+      });
+    }
+
+    if (query?.role) {
+      queryBuilder
+        .leftJoin('user.roles', 'role')
+        .andWhere('role.name = :roleName', { roleName: query.role });
+    }
+
+    const skip = (page - 1) * limit;
+    queryBuilder.skip(skip).take(limit);
+
+    const [users, total] = await queryBuilder
+      .select([
+        'user.id',
+        'user.username',
+        'user.email',
+        'user.firstName',
+        'user.lastName',
+        'user.isActive',
+        'user.createdAt',
+      ])
+      .getManyAndCount();
+
+    return {
+      data: users,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
-  async findById(id: number): Promise<User | null> {
-    return this.userRepository.findOne({
-      where: { id },
-      relations: ['roles', 'roles.permissions']
-    });
-  }
-
-  async assignRole(userId: number, roleName: string): Promise<User> {
+  async findById(id: number): Promise<User> {
     const user = await this.userRepository.findOne({
-      where: { id: userId },
-      relations: ['roles']
+      where: { id },
+      select: ['id', 'username', 'email', 'firstName', 'lastName', 'isActive', 'createdAt'],
     });
-    
+
     if (!user) {
       throw new NotFoundException('User not found');
-    }
-
-    const role = await this.roleRepository.findOne({ where: { name: roleName } });
-    if (!role) {
-      throw new NotFoundException('Role not found');
-    }
-
-    // Check if user already has this role
-    const hasRole = user.roles.some(r => r.id === role.id);
-    if (!hasRole) {
-      user.roles.push(role);
-      await this.userRepository.save(user);
     }
 
     return user;
   }
 
-  async removeRole(userId: number, roleName: string): Promise<User> {
-    const user = await this.userRepository.findOne({
-      where: { id: userId },
-      relations: ['roles']
+  async findByEmail(email: string): Promise<User | null> {
+    return this.userRepository.findOne({
+      where: { email },
+      relations: ['roles'],
     });
-    
+  }
+
+  async findByUsername(username: string): Promise<User | null> {
+    return this.userRepository.findOne({
+      where: { username },
+      relations: ['roles'],
+    });
+  }
+
+  async update(id: number, updateUserDto: UpdateUserDto): Promise<User> {
+    const user = await this.findById(id);
+
+    if (updateUserDto.email) {
+      const existingByEmail = await this.userRepository.findOne({
+        where: { email: updateUserDto.email },
+      });
+
+      if (existingByEmail && existingByEmail.id !== id) {
+        throw new ConflictException('Email is already in use');
+      }
+    }
+
+    if (updateUserDto.username) {
+      const existingByUsername = await this.userRepository.findOne({
+        where: { username: updateUserDto.username },
+      });
+
+      if (existingByUsername && existingByUsername.id !== id) {
+        throw new ConflictException('Username is already in use');
+      }
+    }
+
+    Object.assign(user, updateUserDto);
+    return this.userRepository.save(user);
+  }
+
+  async updateProfile(id: number, updateProfileDto: UpdateProfileDto): Promise<User> {
+    const user = await this.findById(id);
+    Object.assign(user, updateProfileDto);
+    return this.userRepository.save(user);
+  }
+
+  async changePassword(id: number, changePasswordDto: ChangePasswordDto): Promise<void> {
+    const user = await this.userRepository.findOne({
+      where: { id },
+      select: ['id', 'password'],
+    });
+
     if (!user) {
       throw new NotFoundException('User not found');
     }
 
-    user.roles = user.roles.filter(role => role.name !== roleName);
+    const isCurrentPasswordValid = await bcrypt.compare(
+      changePasswordDto.currentPassword,
+      user.password,
+    );
+
+    if (!isCurrentPasswordValid) {
+      throw new ConflictException('Current password is incorrect');
+    }
+
+    const hashedPassword = await bcrypt.hash(changePasswordDto.newPassword, 10);
+
+    await this.userRepository.update(id, { password: hashedPassword });
+  }
+
+  async remove(id: number): Promise<void> {
+    const user = await this.findById(id);
+    await this.userRepository.remove(user);
+  }
+
+  async toggleStatus(id: number): Promise<User> {
+    const user = await this.findById(id);
+    user.isActive = !user.isActive;
     return this.userRepository.save(user);
   }
 
-  async getUserPermissions(userId: number): Promise<string[]> {
-    const user = await this.findById(userId);
-    if (!user) {
-      return [];
-    }
+  async getTotalCount(): Promise<number> {
+    return this.userRepository.count();
+  }
 
-    const permissions = new Set<string>();
-    user.roles.forEach(role => {
-      role.permissions.forEach(permission => {
-        permissions.add(`${permission.resource}:${permission.action}`);
-      });
+  async getActiveUsersCount(): Promise<number> {
+    return this.userRepository.count({ where: { isActive: true } });
+  }
+
+  async getInactiveUsersCount(): Promise<number> {
+    return this.userRepository.count({ where: { isActive: false } });
+  }
+
+  async getRecentUsers(limit: number = 5): Promise<User[]> {
+    return this.userRepository.find({
+      select: ['id', 'username', 'email', 'firstName', 'lastName', 'createdAt'],
+      order: { createdAt: 'DESC' },
+      take: limit,
     });
+  }
 
-    return Array.from(permissions);
+  async findByRole(roleName: string): Promise<User[]> {
+    return this.userRepository
+      .createQueryBuilder('user')
+      .leftJoin('user.roles', 'role')
+      .where('role.name = :roleName', { roleName })
+      .select([
+        'user.id',
+        'user.username',
+        'user.email',
+        'user.firstName',
+        'user.lastName',
+        'user.isActive',
+        'user.createdAt',
+      ])
+      .getMany();
+  }
+
+  async assignRole(userId: number, roleName: string): Promise<User> {
+    return this.findById(userId);
+  }
+
+  async removeRole(userId: number, roleName: string): Promise<User> {
+    return this.findById(userId);
   }
 }

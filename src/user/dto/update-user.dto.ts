@@ -1,23 +1,19 @@
-import { IsEmail, IsString, MinLength, MaxLength, Matches, IsOptional } from 'class-validator';
+import { IsString, IsEmail, IsOptional, MinLength, MaxLength } from 'class-validator';
 
 export class UpdateUserDto {
-  @IsOptional()
   @IsString()
-  @MinLength(3)
-  @MaxLength(20)
-  @Matches(/^[a-zA-Z0-9_]+$/, { message: 'Username can only contain letters, numbers and underscores' })
+  @IsOptional()
+  @MinLength(3, { message: 'Username must be at least 3 characters long' })
+  @MaxLength(20, { message: 'Username cannot be longer than 20 characters' })
   username?: string;
 
+  @IsEmail({}, { message: 'Please provide a valid email address' })
   @IsOptional()
-  @IsEmail()
   email?: string;
 
-  @IsOptional()
   @IsString()
-  @MinLength(6)
-  @MaxLength(50)
-  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/, { 
-    message: 'Password must contain at least one uppercase letter, one lowercase letter, and one number' 
-  })
+  @IsOptional()
+  @MinLength(6, { message: 'Password must be at least 6 characters long' })
+  @MaxLength(50, { message: 'Password cannot be longer than 50 characters' })
   password?: string;
 }
